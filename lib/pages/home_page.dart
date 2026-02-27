@@ -1,4 +1,5 @@
 import 'package:eunix/pages/tcp_client_page.dart';
+import 'package:eunix/pages/tcp_proxy_page.dart';
 import 'package:eunix/pages/tcp_server_page.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:network_info_plus/network_info_plus.dart';
@@ -146,7 +147,14 @@ class _HomePageState extends State<HomePage> {
                     icon: Icons.swap_horiz,
                     title: "TCP Proxy",
                     subtitle: "Forward traffic",
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const TcpProxyPage(),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 12),
                   toolCard(

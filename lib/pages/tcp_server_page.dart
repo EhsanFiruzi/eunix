@@ -129,6 +129,22 @@ class _TcpServerPageState extends State<TcpServerPage> {
   }
 
   @override
+  void dispose() {
+    for (var client in connectedClients) {
+      client.destroy();
+    }
+    connectedClients.clear();
+
+    server?.close();
+    server = null;
+
+    portController.dispose();
+    welcomeController.dispose();
+
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       headers: [

@@ -103,6 +103,15 @@ class _TcpClientPageState extends State<TcpClientPage> {
   }
 
   @override
+  void dispose() {
+    disconnect();
+    ipController.dispose();
+    portController.dispose();
+    messageController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       headers: [
