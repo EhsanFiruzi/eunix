@@ -2,19 +2,19 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
-class TcpClientPage extends StatefulWidget {
-  const TcpClientPage({super.key});
+class UdpClientPage extends StatefulWidget {
+  const UdpClientPage({super.key});
 
   @override
-  State<TcpClientPage> createState() => _TcpClientPageState();
+  State createState() => _UdpClientPageState();
 }
 
-class _TcpClientPageState extends State<TcpClientPage> {
+class _UdpClientPageState extends State<UdpClientPage> {
   final TextEditingController ipController = TextEditingController();
   final TextEditingController portController = TextEditingController();
   final TextEditingController messageController = TextEditingController();
 
-  Socket? socket;
+  RawDatagramSocket? socket;
   bool isConnected = false;
 
   List<_LogItem> logs = [];
@@ -29,7 +29,7 @@ class _TcpClientPageState extends State<TcpClientPage> {
     });
   }
 
-  Future<void> connect() async {
+  Future connect() async {
     final ip = ipController.text.trim();
     final port = int.tryParse(portController.text.trim());
 
@@ -39,50 +39,46 @@ class _TcpClientPageState extends State<TcpClientPage> {
     }
 
     try {
-      socket = await Socket.connect(
-        ip,
-        port,
-        timeout: const Duration(seconds: 5),
-      );
+      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+
+      socket!.listen((event) {
+        if (event == RawSocketEvent.read) {
+          final datagram = socket!.receive();
+          if (datagram != null) {
+            final message = utf8.decode(datagram.data);
+            addLog("Received: $message", LogType.received);
+          }
+        }
+      });
 
       setState(() => isConnected = true);
-
-      addLog("Connected to $ip:$port", LogType.info);
-
-      socket!.listen(
-        (data) {
-          final message = utf8.decode(data);
-          addLog("Received: $message", LogType.received);
-        },
-        onError: (error) {
-          addLog("Error: $error", LogType.error);
-          disconnect();
-        },
-        onDone: () {
-          addLog("Connection closed by server", LogType.info);
-          disconnect();
-        },
-      );
+      addLog("UDP Ready → Sending to $ip:$port", LogType.info);
     } catch (e) {
-      addLog("Connection failed: $e", LogType.error);
+      addLog("UDP Init failed: $e", LogType.error);
     }
   }
 
   void disconnect() {
-    socket?.destroy();
+    socket?.close();
     socket = null;
     setState(() => isConnected = false);
+    addLog("UDP Socket closed", LogType.info);
   }
 
   void sendMessage() {
     if (!isConnected || socket == null) return;
 
-    final message = messageController.text;
+    final message = messageController.text.trim();
     if (message.isEmpty) return;
 
-    socket!.write(message);
-    addLog("Sent: $message", LogType.sent);
+    final ip = ipController.text.trim();
+    final port = int.tryParse(portController.text.trim());
 
+    if (port == null) return;
+
+    socket!.send(utf8.encode(message), InternetAddress(ip), port);
+
+    addLog("Sent: $message", LogType.sent);
     messageController.clear();
   }
 
@@ -117,7 +113,7 @@ class _TcpClientPageState extends State<TcpClientPage> {
     return Scaffold(
       headers: [
         AppBar(
-          title: const Text("TCP Client"),
+          title: const Text("UDP Client"),
           trailing: [
             IconButton(
               icon: const Icon(Icons.delete),
@@ -168,7 +164,7 @@ class _TcpClientPageState extends State<TcpClientPage> {
                 Expanded(
                   child: TextField(
                     controller: messageController,
-                    placeholder: const Text('Enter your name'),
+                    placeholder: const Text('Message'),
                   ),
                 ),
                 const SizedBox(width: 12),

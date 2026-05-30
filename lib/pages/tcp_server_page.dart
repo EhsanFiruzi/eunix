@@ -19,6 +19,7 @@ class _TcpServerPageState extends State<TcpServerPage> {
 
   final List<_LogItem> logs = [];
   final List<Socket> connectedClients = [];
+  final ScrollController logScrollController = ScrollController();
 
   void addLog(String message, LogType type) {
     setState(() {
@@ -248,27 +249,34 @@ class _TcpServerPageState extends State<TcpServerPage> {
                             style: TextStyle(fontFamily: "monospace"),
                           ),
                         )
-                      : ListView.builder(
-                          reverse: true,
-                          itemCount: logs.length,
-                          itemBuilder: (context, index) {
-                            final log = logs[index];
-                            final time =
-                                "${log.time.hour.toString().padLeft(2, '0')}:"
-                                "${log.time.minute.toString().padLeft(2, '0')}:"
-                                "${log.time.second.toString().padLeft(2, '0')}";
+                      : Scrollbar(
+                          controller: logScrollController,
+                          thumbVisibility: true,
+                          child: ListView.builder(
+                            controller: logScrollController,
+                            reverse: true,
+                            itemCount: logs.length,
+                            itemBuilder: (context, index) {
+                              final log = logs[index];
+                              final time =
+                                  "${log.time.hour.toString().padLeft(2, '0')}:"
+                                  "${log.time.minute.toString().padLeft(2, '0')}:"
+                                  "${log.time.second.toString().padLeft(2, '0')}";
 
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Text(
-                                "[$time] ${log.message}",
-                                style: TextStyle(
-                                  fontFamily: "monospace",
-                                  color: getLogColor(log.type),
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
                                 ),
-                              ),
-                            );
-                          },
+                                child: SelectableText(
+                                  "[$time] ${log.message}",
+                                  style: TextStyle(
+                                    fontFamily: "monospace",
+                                    color: getLogColor(log.type),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         ),
                 ),
               ),

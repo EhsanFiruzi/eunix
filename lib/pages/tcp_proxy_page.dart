@@ -25,6 +25,7 @@ class _TcpProxyPageState extends State<TcpProxyPage> {
   ServerSocket? server;
   final List<Socket> clients = [];
   final List<_ProxyLog> logs = [];
+  final ScrollController logScrollController = ScrollController();
 
   @override
   void initState() {
@@ -107,84 +108,46 @@ class _TcpProxyPageState extends State<TcpProxyPage> {
         );
 
         Socket? remote;
+        bool isHttpsTunnel = false;
 
         client.listen(
           (data) async {
             try {
-              if (mode == ProxyMode.manual) {
-                if (remote == null) {
-                  final remoteHost = remoteHostController.text.trim();
-                  final remotePort = int.tryParse(
-                    remotePortController.text.trim(),
-                  );
-
-                  if (remoteHost.isEmpty || remotePort == null) {
-                    addLog("Invalid remote config", LogType.error);
-                    client.destroy();
-                    return;
-                  }
-
-                  remote = await Socket.connect(remoteHost, remotePort);
-
-                  addLog("Connected to $remoteHost:$remotePort", LogType.info);
-
-                  remote!.listen(
-                    (rData) {
-                      client.add(rData);
-                      addLog(
-                        "[R→C] ${utf8.decode(rData, allowMalformed: true)}",
-                        LogType.received,
-                      );
-                    },
-                    onDone: () {
-                      remote?.destroy();
-                      client.destroy();
-                    },
-                  );
-                }
-
-                remote!.add(data);
-
-                addLog(
-                  "[C→R] ${utf8.decode(data, allowMalformed: true)}",
-                  LogType.received,
-                );
-              } else {
+              // اگر هنوز به ریموت وصل نشدیم
+              if (remote == null) {
                 final request = utf8.decode(data, allowMalformed: true);
 
-                if (remote == null) {
-                  String? host;
-                  int port = 80;
+                String? targetHost;
+                int targetPort = 80;
 
-                  if (request.startsWith("CONNECT")) {
-                    final parts = request.split(" ");
-                    final hostPort = parts[1].split(":");
-                    host = hostPort[0];
-                    port = int.parse(hostPort[1]);
-                  } else {
-                    final match = RegExp(r'Host: (.+)').firstMatch(request);
-                    if (match != null) {
-                      host = match.group(1);
-                    }
-                  }
+                // =======================
+                // HTTPS (CONNECT)
+                // =======================
+                if (request.startsWith("CONNECT")) {
+                  isHttpsTunnel = true;
 
-                  if (host == null) {
-                    addLog("Dynamic detection failed", LogType.error);
-                    client.destroy();
-                    return;
-                  }
+                  final parts = request.split(" ");
+                  final hostPort = parts[1].split(":");
 
-                  remote = await Socket.connect(host, port);
+                  targetHost = hostPort[0];
+                  targetPort = int.parse(hostPort[1]);
 
-                  addLog("Dynamic → $host:$port", LogType.info);
+                  remote = await Socket.connect(targetHost, targetPort);
 
-                  // 🔥 اینجا لاگ برگشتی رو اضافه کن
+                  addLog(
+                    "HTTPS Tunnel → $targetHost:$targetPort",
+                    LogType.info,
+                  );
+
+                  // فقط همین پاسخ لازمه
+                  client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+
+                  // Remote → Client (raw TLS forward)
                   remote!.listen(
                     (rData) {
                       client.add(rData);
-
                       addLog(
-                        "[R→C] ${utf8.decode(rData, allowMalformed: true)}",
+                        "[R→C] ${rData.length} bytes (TLS)",
                         LogType.received,
                       );
                     },
@@ -196,15 +159,68 @@ class _TcpProxyPageState extends State<TcpProxyPage> {
                       addLog("Remote error: $e", LogType.error);
                     },
                   );
+
+                  return; // مهم
                 }
 
-                // 🔥 اینم لاگ رفت
-                remote!.add(data);
+                // =======================
+                // HTTP معمولی
+                // =======================
+                final match = RegExp(
+                  r'Host:\s*(.+)',
+                  caseSensitive: false,
+                ).firstMatch(request);
 
-                addLog(
-                  "[C→R] ${utf8.decode(data, allowMalformed: true)}",
-                  LogType.received,
+                if (match != null) {
+                  final hostLine = match.group(1)!;
+
+                  if (hostLine.contains(":")) {
+                    final split = hostLine.split(":");
+                    targetHost = split[0];
+                    targetPort = int.parse(split[1]);
+                  } else {
+                    targetHost = hostLine;
+                  }
+                }
+
+                if (targetHost == null) {
+                  addLog("Host detection failed", LogType.error);
+                  client.destroy();
+                  return;
+                }
+
+                remote = await Socket.connect(targetHost, targetPort);
+
+                addLog("Connected → $targetHost:$targetPort", LogType.info);
+
+                // Remote → Client
+                remote!.listen(
+                  (rData) {
+                    client.add(rData);
+
+                    final text = utf8.decode(rData, allowMalformed: true);
+                    addLog("[R→C]\n$text", LogType.received);
+                  },
+                  onDone: () {
+                    remote?.destroy();
+                    client.destroy();
+                  },
+                  onError: (e) {
+                    addLog("Remote error: $e", LogType.error);
+                  },
                 );
+              }
+
+              // =======================
+              // Client → Remote
+              // =======================
+              remote!.add(data);
+
+              if (isHttpsTunnel) {
+                addLog("[C→R] ${data.length} bytes (TLS)", LogType.received);
+              } else {
+                final text = utf8.decode(data, allowMalformed: true);
+                addLog("[C→R]\n$text", LogType.received);
               }
             } catch (e) {
               addLog("Proxy error: $e", LogType.error);
@@ -215,6 +231,9 @@ class _TcpProxyPageState extends State<TcpProxyPage> {
             client.destroy();
             remote?.destroy();
             addLog("Client disconnected", LogType.info);
+          },
+          onError: (e) {
+            addLog("Client error: $e", LogType.error);
           },
         );
       });
@@ -369,26 +388,33 @@ class _TcpProxyPageState extends State<TcpProxyPage> {
                             style: TextStyle(fontFamily: "monospace"),
                           ),
                         )
-                      : ListView.builder(
-                          reverse: true,
-                          itemCount: logs.length,
-                          itemBuilder: (context, index) {
-                            final log = logs[index];
-                            final time =
-                                "${log.time.hour.toString().padLeft(2, '0')}:"
-                                "${log.time.minute.toString().padLeft(2, '0')}:"
-                                "${log.time.second.toString().padLeft(2, '0')}";
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Text(
-                                "[$time] ${log.message}",
-                                style: TextStyle(
-                                  fontFamily: "monospace",
-                                  color: getLogColor(log.type),
+                      : Scrollbar(
+                          controller: logScrollController,
+                          thumbVisibility: true,
+                          child: ListView.builder(
+                            controller: logScrollController,
+                            reverse: true,
+                            itemCount: logs.length,
+                            itemBuilder: (context, index) {
+                              final log = logs[index];
+                              final time =
+                                  "${log.time.hour.toString().padLeft(2, '0')}:"
+                                  "${log.time.minute.toString().padLeft(2, '0')}:"
+                                  "${log.time.second.toString().padLeft(2, '0')}";
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
                                 ),
-                              ),
-                            );
-                          },
+                                child: SelectableText(
+                                  "[$time] ${log.message}",
+                                  style: TextStyle(
+                                    fontFamily: "monospace",
+                                    color: getLogColor(log.type),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         ),
                 ),
               ),

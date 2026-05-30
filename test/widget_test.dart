@@ -5,15 +5,23 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
-import 'package:flutter/material.dart';
+import 'package:eunix/pages/home_page.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eunix/main.dart';
+import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(
+      ShadcnApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(colorScheme: ColorSchemes.darkSlate.teal, radius: 0.8),
+        home: const HomePage(),
+      ),
+    );
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);
